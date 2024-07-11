@@ -1,0 +1,120 @@
+From 0325c6f7aaaeaaf1007569be2f2a03011d12fb51 Mon Sep 17 00:00:00 2001
+From: Vindya <vindyamalur2003@gmail.com>
+Date: Thu, 11 Jul 2024 12:04:21 +0530
+Subject: [PATCH] Updated Graph and DataManipulator to match new schema and
+ handle data correctly
+
+---
+ src/DataManipulator.ts | 40 ++++++++++++++++++++++++++++++++++++----
+ src/Graph.tsx          | 16 ++++++++++++++--
+ 2 files changed, 50 insertions(+), 6 deletions(-)
+
+diff --git a/src/DataManipulator.ts b/src/DataManipulator.ts
+index 7f62295..f24c6b6 100644
+--- a/src/DataManipulator.ts
++++ b/src/DataManipulator.ts
+@@ -3,18 +3,50 @@ import { ServerRespond } from './DataStreamer';
+ export interface Row {
+   stock: string,
+   top_ask_price: number,
++  top_bid_price: number,
+   timestamp: Date,
++  ratio: number,
++  upper_bound: number,
++  lower_bound: number,
++  trigger_alert: number | undefined,
++  price_abc: number,
++  price_def: number,
+ }
+ 
+-
+ export class DataManipulator {
+-  static generateRow(serverResponds: ServerRespond[]) {
+-    return serverResponds.map((el: any) => {
++  static generateRow(serverResponds: ServerRespond[]): { [key: string]: any[] } {
++    const priceABC = serverResponds
++      .filter((el: ServerRespond) => el.stock === 'ABC')
++      .map((el: ServerRespond) => (el.top_ask.price + el.top_bid.price) / 2);
++
++    const priceDEF = serverResponds
++      .filter((el: ServerRespond) => el.stock === 'DEF')
++      .map((el: ServerRespond) => (el.top_ask.price + el.top_bid.price) / 2);
++
++    const ratio = priceABC[0] / priceDEF[0];
++    const upperBound = 1 + 0.05;
++    const lowerBound = 1 - 0.05;
++    const triggerAlert = (ratio > upperBound || ratio < lowerBound) ? ratio : undefined;
++
++    return serverResponds.map((el: ServerRespond) => {
+       return {
+         stock: el.stock,
+         top_ask_price: el.top_ask && el.top_ask.price || 0,
++        top_bid_price: el.top_bid && el.top_bid.price || 0,
+         timestamp: el.timestamp,
++        ratio,
++        upper_bound: upperBound,
++        lower_bound: lowerBound,
++        trigger_alert: triggerAlert,
++        price_abc: priceABC[0],
++        price_def: priceDEF[0],
+       };
+-    })
++    }).reduce((acc, row) => {
++      (Object.keys(row) as (keyof Row)[]).forEach(key => {
++        if (!acc[key]) acc[key] = [];
++        acc[key].push(row[key]);
++      });
++      return acc;
++    }, {} as { [key: string]: any[] });
+   }
+ }
+diff --git a/src/Graph.tsx b/src/Graph.tsx
+index 277797d..79dc6e9 100644
+--- a/src/Graph.tsx
++++ b/src/Graph.tsx
+@@ -11,6 +11,7 @@ interface IProps {
+ interface PerspectiveViewerElement extends HTMLElement {
+   load: (table: Table) => void,
+ }
++
+ class Graph extends Component<IProps, {}> {
+   table: Table | undefined;
+ 
+@@ -27,6 +28,12 @@ class Graph extends Component<IProps, {}> {
+       top_ask_price: 'float',
+       top_bid_price: 'float',
+       timestamp: 'date',
++      ratio: 'float',
++      upper_bound: 'float',
++      lower_bound: 'float',
++      trigger_alert: 'float',
++      price_abc: 'float',
++      price_def: 'float',
+     };
+ 
+     if (window.perspective && window.perspective.worker()) {
+@@ -36,14 +43,19 @@ class Graph extends Component<IProps, {}> {
+       // Load the `table` in the `<perspective-viewer>` DOM reference.
+       elem.load(this.table);
+       elem.setAttribute('view', 'y_line');
+-      elem.setAttribute('column-pivots', '["stock"]');
+       elem.setAttribute('row-pivots', '["timestamp"]');
+-      elem.setAttribute('columns', '["top_ask_price"]');
++      elem.setAttribute('columns', '["ratio", "upper_bound", "lower_bound", "trigger_alert"]');
+       elem.setAttribute('aggregates', JSON.stringify({
+         stock: 'distinctcount',
+         top_ask_price: 'avg',
+         top_bid_price: 'avg',
+         timestamp: 'distinct count',
++        ratio: 'avg',
++        upper_bound: 'avg',
++        lower_bound: 'avg',
++        trigger_alert: 'avg',
++        price_abc: 'avg',
++        price_def: 'avg',
+       }));
+     }
+   }
+-- 
+2.43.0.windows.1
+
